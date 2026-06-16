@@ -1,0 +1,96 @@
+# Job Group: cross-task NCCL / torch.distributed example.
+#
+# Forms a single torch.distributed (NCCL) process group that SPANS multiple
+# Job Group tasks, using Job Group service discovery for the rendezvous. This
+# lets distributed GPU workloads communicate across separate jobs -- each of
+# which can be scaled and managed on its own -- without an external
+# coordinator.
+#
+# Topology here: two single-GPU tasks. The rank-0 task ("worker0") is the
+# rendezvous host, reachable from every task at
+# `worker0-0.${SKYPILOT_JOBGROUP_NAME}` (Job Group service discovery). Each
+# task passes its fixed global node rank via NODE_RANK.
+#
+# To scale: give a task more GPUs per node (torchrun's --nproc_per_node is set
+# to ${SKYPILOT_NUM_GPUS_PER_NODE}), or more nodes (raise --nnodes and offset
+# --node_rank per task), or add more worker tasks.
+#
+# Requires a Kubernetes cluster with NVIDIA GPUs (Job Group service discovery
+# requires Kubernetes).
+#
+# Usage:
+#   sky jobs launch examples/job-group-sdk/job_group_nccl.yaml
+
+---
+name: nccl-job-group
+execution: parallel
+
+---
+name: worker0
+resources:
+  accelerators: A100:1
+  infra: kubernetes
+envs:
+  NNODES: "2"
+  NODE_RANK: "0"
+setup: |
+  pip install torch
+run: |
+  cat > /tmp/allreduce.py <<'PY'
+  import os
+  import torch
+  import torch.distributed as dist
+
+  dist.init_process_group("nccl")
+  rank, world = dist.get_rank(), dist.get_world_size()
+  torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", 0)))
+  # Each rank contributes (rank + 1); all_reduce sum should be 1 + 2 + ... + world.
+  x = torch.ones(1, device="cuda") * (rank + 1)
+  dist.all_reduce(x)
+  print(f"[rank {rank}/{world}] all_reduce sum = {int(x.item())}", flush=True)
+  dist.destroy_process_group()
+  PY
+  # The rank-0 task is the rendezvous host, found via Job Group service discovery.
+  MASTER_ADDR="worker0-0.${SKYPILOT_JOBGROUP_NAME}"
+  echo "rendezvous ${MASTER_ADDR}:29500  (node_rank=${NODE_RANK}/${NNODES})"
+  torchrun \
+    --nnodes="${NNODES}" \
+    --node_rank="${NODE_RANK}" \
+    --nproc_per_node="${SKYPILOT_NUM_GPUS_PER_NODE}" \
+    --master_addr="${MASTER_ADDR}" \
+    --master_port=29500 \
+    /tmp/allreduce.py
+
+---
+name: worker1
+resources:
+  accelerators: A100:1
+  infra: kubernetes
+envs:
+  NNODES: "2"
+  NODE_RANK: "1"
+setup: |
+  pip install torch
+run: |
+  cat > /tmp/allreduce.py <<'PY'
+  import os
+  import torch
+  import torch.distributed as dist
+
+  dist.init_process_group("nccl")
+  rank, world = dist.get_rank(), dist.get_world_size()
+  torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", 0)))
+  x = torch.ones(1, device="cuda") * (rank + 1)
+  dist.all_reduce(x)
+  print(f"[rank {rank}/{world}] all_reduce sum = {int(x.item())}", flush=True)
+  dist.destroy_process_group()
+  PY
+  MASTER_ADDR="worker0-0.${SKYPILOT_JOBGROUP_NAME}"
+  echo "rendezvous ${MASTER_ADDR}:29500  (node_rank=${NODE_RANK}/${NNODES})"
+  torchrun \
+    --nnodes="${NNODES}" \
+    --node_rank="${NODE_RANK}" \
+    --nproc_per_node="${SKYPILOT_NUM_GPUS_PER_NODE}" \
+    --master_addr="${MASTER_ADDR}" \
+    --master_port=29500 \
+    /tmp/allreduce.py

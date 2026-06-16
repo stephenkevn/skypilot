@@ -14,6 +14,7 @@ This example shows how to create and launch [Job Groups](https://docs.skypilot.c
 | `job_group_sdk.py` | Builds and launches a server-client Job Group in Python |
 | `job_group_primary_aux_sdk.py` | Demonstrates primary/auxiliary task lifecycle |
 | `job_group.yaml` | Equivalent YAML for reference |
+| `job_group_nccl.yaml` | Optional: a NCCL / `torch.distributed` process group spanning Job Group tasks (needs GPUs) |
 
 ## Usage
 
@@ -42,6 +43,30 @@ This example shows how to designate a primary task (trainer) and an auxiliary ta
 ```bash
 python examples/job-group-sdk/job_group_primary_aux_sdk.py
 ```
+
+### Cross-task NCCL / distributed GPU comms (optional)
+
+Job Group service discovery also lets you form a single `torch.distributed`
+(NCCL) process group that spans multiple tasks, so distributed GPU workloads
+can communicate across separate jobs — each independently scalable — without an
+external coordinator. Each task joins the group via the rank-0 task's hostname
+(`worker0-0.${SKYPILOT_JOBGROUP_NAME}`) as the rendezvous endpoint.
+
+```bash
+sky jobs launch examples/job-group-sdk/job_group_nccl.yaml
+```
+
+This runs an all-reduce across two single-GPU tasks; expected output (the sum
+`1 + 2 + ... + world_size`):
+
+```console
+(worker0, ...) [rank 0/2] all_reduce sum = 3
+(worker1, ...) [rank 1/2] all_reduce sum = 3
+```
+
+Requires a Kubernetes cluster with NVIDIA GPUs. Scale with more GPUs per node
+(`--nproc_per_node`), more nodes per task (`--nnodes` + per-task `--node_rank`),
+or more worker tasks.
 
 ## Example output
 
