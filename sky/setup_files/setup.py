@@ -139,8 +139,11 @@ def parse_readme(readme: str) -> str:
         re.MULTILINE)
     readme = mode_re.sub(r'<img\1>', readme)
 
-    # Keep only the light variant of GitHub theme-specific images.
-    readme = re.sub(r'[ ]*<img [^>]*#gh-dark-mode-only[^>]*>\n?', '', readme)
+    # Keep only the light variant of GitHub theme-specific links.
+    readme = re.sub(r'[ ]*<a href="[^"]*#gh-dark-mode-only">.*?</a>\n?',
+                    '',
+                    readme,
+                    flags=re.DOTALL)
     readme = readme.replace('#gh-light-mode-only', '')
     return readme
 
