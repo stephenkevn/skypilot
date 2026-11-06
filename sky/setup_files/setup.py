@@ -138,6 +138,13 @@ def parse_readme(readme: str) -> str:
         r'<picture>[\n ]*<source media=.*>[\n ]*<img(.*)>[\n ]*</picture>',
         re.MULTILINE)
     readme = mode_re.sub(r'<img\1>', readme)
+
+    # The README logo is an SVG that follows the page's color scheme. PyPI
+    # does not set one, so use the light PNG there.
+    readme = readme.replace(
+        'src="docs/source/images/skypilot-wide.svg"',
+        'src="https://raw.githubusercontent.com/skypilot-org/skypilot/master/'
+        'docs/source/images/skypilot-wide-light-1k.png"')
     return readme
 
 
